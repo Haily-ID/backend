@@ -35,8 +35,9 @@ Built with Clean Architecture for maintainability and scalability in complex ent
 2. **Avoid DRY**: Prefer clarity over abstraction, explicit code > clever code
 3. **Performance First**: Redis caching, Asynq async jobs, connection pooling, Snowflake IDs
 4. **Modular Design**: Monorepo with logical module separation
-5. **API Design**: Unnormalized responses, DTO separation, semantic HTTP codes, error enums
-6. **Best Practices**: AutoMigrate, Air hot reload, semantic commits, PR-first workflow
+5. **API Design**: Simple response format `{data}` or `{error}`, specific error codes, semantic HTTP codes
+6. **Minimal Comments**: Code should be self-explanatory, comment only complex logic
+7. **Best Practices**: AutoMigrate, Air hot reload, semantic commits, PR-first workflow
 
 ---
 
@@ -308,35 +309,43 @@ Examples: `user:id:123`, `invoice:id:INV-001`
 
 ---
 
-## Unnormalized Response Format
+## API Response Format
 
-**Structure**:
+**Success Response** (200, 201):
 
 ```json
 {
-  "error": {
-    "code": "ERROR_CODE",
-    "message": "Human readable",
-    "field": "field_name"
-  },
-  "instructions": [
-    {
-      "type": "entity_type",
-      "ids": ["id1", "id2"]
-    }
-  ],
-  "entities": {
-    "entity_type": {
-      "id1": {...},
-      "id2": {...}
-    }
+  "data": {
+    /* entity atau array */
   }
 }
 ```
 
-**Benefits**: Client-side caching, deduplication, flexibility, reduced payload, easy state management
+**Error Response** (4xx, 5xx):
 
-**Error Codes**: `VALIDATION_ERROR`, `NOT_FOUND`, `UNAUTHORIZED`, `FORBIDDEN`, `CONFLICT`, `INTERNAL_SERVER_ERROR`, `SERVICE_UNAVAILABLE`
+```json
+{
+  "error": "SPECIFIC_ERROR_CODE"
+}
+```
+
+**Principles**:
+
+- Simple, consistent structure
+- `data` field only for success responses
+- `error` field only for error responses
+- Error codes are SPECIFIC to the problem (e.g., `USER_NOT_FOUND`, not just `NOT_FOUND`)
+- No additional fields (no message, no meta)
+- Client determines UI message based on error code
+
+**Error Code Pattern**:
+
+- Generic: `VALIDATION_ERROR`, `UNAUTHORIZED`, `FORBIDDEN`, `INTERNAL_SERVER_ERROR`
+- Entity-specific: `{ENTITY}_{ACTION}_FAILED` - e.g., `USER_UPDATE_FAILED`, `COMPANY_DELETE_FAILED`
+- Not found: `{ENTITY}_NOT_FOUND` - e.g., `USER_NOT_FOUND`, `COMPANY_NOT_FOUND`
+- Already exists: `{FIELD}_ALREADY_EXISTS` - e.g., `EMAIL_ALREADY_EXISTS`
+- Invalid input: `INVALID_{FIELD}` - e.g., `INVALID_USER_ID`, `INVALID_COMPANY_CODE`
+- See `internal/pkg/response/response.go` for all available error codes
 
 **HTTP Status Codes**:
 
@@ -421,13 +430,29 @@ SNOWFLAKE_MACHINE_ID=1
 
 **Domain Errors**: `ErrNotFound`, `ErrAlreadyExists`, `ErrUnauthorized`, `ErrForbidden`, `ErrBadRequest`, `ErrValidation`
 
-**Custom App Error**: Code, message, wrapped error
+**Response Pattern**:
+
+- Handler: Map use case errors → specific error codes
+- Use `response.Error(c, statusCode, errorCode)` with appropriate HTTP status and error constant
+- Error codes defined in `internal/pkg/response/response.go`
+- Always use specific error codes (e.g., `ErrUserNotFound`, not generic `ErrNotFound`)
 
 **Pattern**:
 
-- Use Case: Return domain errors, wrap with context
-- Handler: Check error type (`errors.Is()`), map to HTTP code
+- Use Case: Return domain errors with context
+- Handler: Check error type/message → return specific error code
 - Repository: GORM errors → domain errors
+
+**Example**:
+
+```go
+if err != nil {
+    if err.Error() == "email already registered" {
+        return response.Error(c, http.StatusConflict, response.ErrEmailAlreadyExists)
+    }
+    return response.Error(c, http.StatusInternalServerError, response.ErrInternalServer)
+}
+```
 
 ---
 
@@ -670,17 +695,35 @@ chore(deps): upgrade GORM to v1.25.0
 
 ### Code Generation Guidelines
 
-- Use explicit types (avoid `interface{}`)
+**Code Quality**:
+
+- Use explicit types (avoid `interface{}` where possible)
 - Comprehensive error handling
-- Logging for important ops
-- Consider caching for reads
-- GORM transactions for multi-step
 - Follow naming conventions
-- Comment complex logic
 - Validate at use case level
 - Convert Entity → DTO in handlers
-- Use unnormalized response
-- Proper HTTP codes
+- Proper HTTP status codes with specific error codes
+
+**Comments**:
+
+- ✅ **Minimal comments** - code should be self-explanatory
+- ✅ Comment ONLY for complex algorithms or non-obvious business logic
+- ✅ NO comments for obvious operations (e.g., "// Create user", "// Validate input")
+- ✅ Package documentation at top of main packages
+- ❌ NO commented-out code (delete it, Git keeps history)
+- ❌ NO TODO comments (use issue tracker)
+
+**Logging**:
+
+- Log important operations (create, update, delete)
+- Log errors with context
+- Avoid over-logging (no verbose debug logs in production)
+
+**Performance**:
+
+- Consider caching for frequent reads
+- GORM transactions for multi-step operations
+- Use connection pooling (already configured)
 
 ### Common Scenarios
 

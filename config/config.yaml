@@ -1,0 +1,43 @@
+# Application Configuration
+app:
+  env: development
+  port: 8080
+  name: Haily Backend
+
+# Database Configuration
+database:
+  host: localhost
+  port: 5432
+  user: postgres
+  password: postgres
+  name: haily
+  ssl_mode: disable
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: 5m
+
+# Redis Configuration
+redis:
+  host: localhost
+  port: 6379
+  password: ""
+  db: 0
+  pool_size: 10
+
+# JWT Configuration
+jwt:
+  secret: your-secret-key-change-in-production
+  expiration: 24h
+
+# Snowflake Configuration
+snowflake:
+  machine_id: 1
+
+# Asynq Configuration
+asynq:
+  redis_uri: redis://localhost:6379/0
+  concurrency: 10
+  queues:
+    critical: 60
+    default: 30
+    low: 10
