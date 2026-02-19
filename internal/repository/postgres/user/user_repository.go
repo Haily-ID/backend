@@ -55,4 +55,3 @@ func (r *userRepository) Update(ctx context.Context, u *user.User) error {
 func (r *userRepository) Delete(ctx context.Context, id int64) error {
 	return r.db.WithContext(ctx).Delete(&user.User{}, id).Error
 }
-

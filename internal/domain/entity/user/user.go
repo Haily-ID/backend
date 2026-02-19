@@ -16,15 +16,15 @@ const (
 )
 
 type User struct {
-	ID              int64          `gorm:"primaryKey;autoIncrement:false"`
-	Email           string         `gorm:"uniqueIndex;type:varchar(255);not null"`
-	GoogleID        *string        `gorm:"uniqueIndex;type:varchar(255)"`
-	Password        *string        `gorm:"type:varchar(255)"`
-	Name            string         `gorm:"type:varchar(255);not null"`
-	Phone           *string        `gorm:"type:varchar(50)"`
-	Gender          *string        `gorm:"type:varchar(10)"`
-	AvatarKey       *string        `gorm:"type:varchar(500)"`
-	Status          string         `gorm:"type:varchar(30);not null;default:'PENDING_VERIFICATION'"`
+	ID              int64   `gorm:"primaryKey;autoIncrement:false"`
+	Email           string  `gorm:"uniqueIndex;type:varchar(255);not null"`
+	GoogleID        *string `gorm:"uniqueIndex;type:varchar(255)"`
+	Password        *string `gorm:"type:varchar(255)"`
+	Name            string  `gorm:"type:varchar(255);not null"`
+	Phone           *string `gorm:"type:varchar(50)"`
+	Gender          *string `gorm:"type:varchar(10)"`
+	AvatarKey       *string `gorm:"type:varchar(500)"`
+	Status          string  `gorm:"type:varchar(30);not null;default:'PENDING_VERIFICATION'"`
 	EmailVerifiedAt *time.Time
 	LastLoginAt     *time.Time
 	CreatedAt       time.Time

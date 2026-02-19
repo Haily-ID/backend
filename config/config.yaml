@@ -44,7 +44,7 @@ asynq:
 
 # Mailer Configuration
 mailer:
-  driver: console   # "console" for dev, "smtp" for production
+  driver: console # "console" for dev, "smtp" for production
   from: noreply@haily.id
   host: ""
   port: "587"

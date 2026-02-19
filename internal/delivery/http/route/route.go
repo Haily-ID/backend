@@ -36,4 +36,3 @@ func Setup(e *echo.Echo, cfg RouteConfig) {
 	authProtected.Use(middleware.JWTAuth(cfg.JWTSecret))
 	authProtected.GET("/me", cfg.AuthHandler.GetMe)
 }
-

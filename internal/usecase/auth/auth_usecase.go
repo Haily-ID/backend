@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/hibiken/asynq"
 	userEntity "github.com/haily-id/engine/internal/domain/entity/user"
 	"github.com/haily-id/engine/internal/domain/repository"
 	"github.com/haily-id/engine/internal/pkg/asynq/tasks"
 	"github.com/haily-id/engine/internal/pkg/mailer"
 	"github.com/haily-id/engine/internal/pkg/snowflake"
+	"github.com/hibiken/asynq"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -81,7 +81,28 @@ func NewUseCase(
 func (uc *UseCase) Register(ctx context.Context, req RegisterRequest) (*userEntity.User, error) {
 	existing, _ := uc.userRepo.FindByEmail(ctx, req.Email)
 	if existing != nil {
-		return nil, errors.New("email already registered")
+		if existing.Status != userEntity.StatusPendingVerification {
+			return nil, errors.New("email already registered")
+		}
+		if err := uc.evRepo.DeleteByUserID(ctx, existing.ID); err != nil {
+			return nil, fmt.Errorf("failed to clean up previous registration: %w", err)
+		}
+
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return nil, fmt.Errorf("failed to hash password: %w", err)
+		}
+		pwd := string(hashedPassword)
+		existing.Password = &pwd
+		existing.Name = req.Name
+		if err := uc.userRepo.Update(ctx, existing); err != nil {
+			return nil, fmt.Errorf("failed to update incomplete registration: %w", err)
+		}
+
+		if err := uc.createAndSendOTP(ctx, existing, userEntity.VerificationTypeEmailVerification); err != nil {
+			return nil, err
+		}
+		return existing, nil
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
