@@ -111,3 +111,17 @@ func ResendOTPSuccessMessage(lang string) string {
 	}
 	return "OTP sent successfully. Please check your email."
 }
+
+func ForgotPasswordSuccessMessage(lang string) string {
+	if lang == LangID {
+		return "Kode reset password telah dikirim ke email kamu."
+	}
+	return "Password reset code has been sent to your email."
+}
+
+func ResetPasswordSuccessMessage(lang string) string {
+	if lang == LangID {
+		return "Password berhasil direset. Silakan masuk dengan password baru kamu."
+	}
+	return "Password has been reset successfully. Please sign in with your new password."
+}

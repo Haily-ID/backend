@@ -32,6 +32,10 @@ const (
 	ErrVerificationTokenExpired = "VERIFICATION_TOKEN_EXPIRED"
 	ErrMaxOTPAttemptsExceeded   = "MAX_OTP_ATTEMPTS_EXCEEDED"
 
+	ErrInvalidPasswordResetToken = "INVALID_PASSWORD_RESET_TOKEN"
+	ErrPasswordResetTokenUsed    = "PASSWORD_RESET_TOKEN_ALREADY_USED"
+	ErrPasswordResetTokenExpired = "PASSWORD_RESET_TOKEN_EXPIRED"
+
 	ErrCompanyNotFound          = "COMPANY_NOT_FOUND"
 	ErrCompanyCodeAlreadyExists = "COMPANY_CODE_ALREADY_EXISTS"
 	ErrInvalidCompanyID         = "INVALID_COMPANY_ID"

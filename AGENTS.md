@@ -394,12 +394,14 @@ Examples: `user:id:123`, `invoice:id:INV-001`
 **Detection**: Read `Accept-Language` request header in each HTTP handler, parse and return the best matching supported language.
 
 **Context Propagation**:
+
 1. Handler detects lang from `Accept-Language` header via `i18n.Detect(header)`
 2. Stores lang in context via `i18n.WithLang(ctx, lang)`
 3. Passes enriched context to use case
 4. Use case reads lang via `i18n.FromContext(ctx)` when needed (e.g., for email tasks)
 
 **API**:
+
 - `Detect(acceptLanguage string) string` — parses header, returns `"en"` or `"id"`
 - `WithLang(ctx, lang) context.Context` — stores lang in context
 - `FromContext(ctx) string` — reads lang from context (defaults to `"en"`)
@@ -408,6 +410,7 @@ Examples: `user:id:123`, `invoice:id:INV-001`
 - `ResendOTPSuccessMessage(lang) string` — localized resend OTP success message
 
 **Handler Pattern**:
+
 ```go
 lang := i18n.Detect(c.Request().Header.Get("Accept-Language"))
 ctx := i18n.WithLang(c.Request().Context(), lang)

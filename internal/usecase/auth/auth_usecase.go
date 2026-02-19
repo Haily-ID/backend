@@ -38,6 +38,16 @@ type VerifyEmailRequest struct {
 	OTP   string `json:"otp"   validate:"required,len=6"`
 }
 
+type ForgotPasswordRequest struct {
+	Email string `json:"email" validate:"required,email"`
+}
+
+type ResetPasswordRequest struct {
+	Token       string `json:"token"        validate:"required"`
+	OTP         string `json:"otp"          validate:"required,len=6"`
+	NewPassword string `json:"new_password" validate:"required,min=8"`
+}
+
 type ResendOTPRequest struct {
 	Email string `json:"email" validate:"required,email"`
 }
@@ -172,47 +182,53 @@ func (uc *UseCase) Login(ctx context.Context, req LoginRequest) (*userEntity.Use
 	return u, token, nil
 }
 
-func (uc *UseCase) VerifyEmail(ctx context.Context, req VerifyEmailRequest) (*userEntity.User, error) {
+func (uc *UseCase) VerifyEmail(ctx context.Context, req VerifyEmailRequest) (*userEntity.User, string, error) {
 	ev, err := uc.evRepo.FindByToken(ctx, req.Token)
 	if err != nil {
-		return nil, errors.New("invalid or expired verification token")
+		return nil, "", errors.New("invalid or expired verification token")
 	}
 
 	if ev.IsUsed {
-		return nil, errors.New("verification token already used")
+		return nil, "", errors.New("verification token already used")
 	}
 
 	if time.Now().After(ev.ExpiresAt) {
-		return nil, errors.New("verification token expired")
+		return nil, "", errors.New("verification token expired")
 	}
 
 	if ev.AttemptsUsed >= ev.MaxAttempts {
-		return nil, errors.New("max verification attempts exceeded")
+		return nil, "", errors.New("max verification attempts exceeded")
 	}
 
 	if ev.OTPCode != req.OTP {
 		_ = uc.evRepo.IncrementAttempts(ctx, ev.ID)
-		return nil, errors.New("invalid OTP code")
+		return nil, "", errors.New("invalid OTP code")
 	}
 
 	if err := uc.evRepo.MarkUsed(ctx, ev.ID); err != nil {
-		return nil, fmt.Errorf("failed to mark verification used: %w", err)
+		return nil, "", fmt.Errorf("failed to mark verification used: %w", err)
 	}
 
 	u, err := uc.userRepo.FindByID(ctx, ev.UserID)
 	if err != nil {
-		return nil, fmt.Errorf("user not found: %w", err)
+		return nil, "", fmt.Errorf("user not found: %w", err)
 	}
 
 	now := time.Now()
 	u.Status = userEntity.StatusActive
 	u.EmailVerifiedAt = &now
+	u.LastLoginAt = &now
 
 	if err := uc.userRepo.Update(ctx, u); err != nil {
-		return nil, fmt.Errorf("failed to activate user: %w", err)
+		return nil, "", fmt.Errorf("failed to activate user: %w", err)
 	}
 
-	return u, nil
+	token, err := uc.generateJWT(u)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to generate token: %w", err)
+	}
+
+	return u, token, nil
 }
 
 func (uc *UseCase) ResendOTP(ctx context.Context, req ResendOTPRequest) error {
@@ -239,6 +255,80 @@ func (uc *UseCase) ResendOTP(ctx context.Context, req ResendOTPRequest) error {
 
 func (uc *UseCase) GetMe(ctx context.Context, userID int64) (*userEntity.User, error) {
 	return uc.userRepo.FindByID(ctx, userID)
+}
+
+func (uc *UseCase) ForgotPassword(ctx context.Context, req ForgotPasswordRequest) (string, error) {
+	u, err := uc.userRepo.FindByEmail(ctx, req.Email)
+	if err != nil {
+		// Return success even if not found to prevent email enumeration
+		return "", nil
+	}
+
+	if u.Status == userEntity.StatusSuspended {
+		return "", errors.New("account suspended")
+	}
+
+	if err := uc.evRepo.InvalidateByUserIDAndType(ctx, u.ID, userEntity.VerificationTypePasswordReset); err != nil {
+		return "", fmt.Errorf("failed to invalidate previous reset tokens: %w", err)
+	}
+
+	token, err := uc.createAndSendOTP(ctx, u, userEntity.VerificationTypePasswordReset)
+	if err != nil {
+		return "", err
+	}
+
+	return token, nil
+}
+
+func (uc *UseCase) ResetPassword(ctx context.Context, req ResetPasswordRequest) error {
+	ev, err := uc.evRepo.FindByToken(ctx, req.Token)
+	if err != nil {
+		return errors.New("invalid or expired reset token")
+	}
+
+	if ev.Type != userEntity.VerificationTypePasswordReset {
+		return errors.New("invalid or expired reset token")
+	}
+
+	if ev.IsUsed {
+		return errors.New("reset token already used")
+	}
+
+	if time.Now().After(ev.ExpiresAt) {
+		return errors.New("reset token expired")
+	}
+
+	if ev.AttemptsUsed >= ev.MaxAttempts {
+		return errors.New("max verification attempts exceeded")
+	}
+
+	if ev.OTPCode != req.OTP {
+		_ = uc.evRepo.IncrementAttempts(ctx, ev.ID)
+		return errors.New("invalid OTP code")
+	}
+
+	if err := uc.evRepo.MarkUsed(ctx, ev.ID); err != nil {
+		return fmt.Errorf("failed to mark reset token used: %w", err)
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	u, err := uc.userRepo.FindByID(ctx, ev.UserID)
+	if err != nil {
+		return fmt.Errorf("user not found: %w", err)
+	}
+
+	p := string(hashed)
+	u.Password = &p
+
+	if err := uc.userRepo.Update(ctx, u); err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	return nil
 }
 
 // ─── Helpers ────────────────────────────────────────────────────
