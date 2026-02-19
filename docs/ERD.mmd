@@ -316,7 +316,7 @@ erDiagram
         bigint id PK
         bigint company_id FK
         varchar name
-        varchar code UK
+        varchar code "Unique per company"
         text description
         bigint head_employee_id FK "Nullable"
         boolean is_active
@@ -330,7 +330,7 @@ erDiagram
         bigint company_id FK
         bigint division_id FK "Nullable"
         varchar name
-        varchar code UK
+        varchar code "Unique per company"
         text description
         bigint head_employee_id FK "Nullable"
         boolean is_active
@@ -344,7 +344,7 @@ erDiagram
         bigint company_id FK
         bigint department_id FK
         varchar title
-        varchar code UK
+        varchar code "Unique per company"
         varchar level "JUNIOR, MID, SENIOR, LEAD, MANAGER, DIRECTOR"
         text description
         boolean is_active
