@@ -30,10 +30,11 @@ func Setup(e *echo.Echo, cfg RouteConfig) {
 	auth.POST("/login", cfg.AuthHandler.Login)
 	auth.POST("/verify-email", cfg.AuthHandler.VerifyEmail)
 	auth.POST("/resend-otp", cfg.AuthHandler.ResendOTP)
+	auth.POST("/forgot-password", cfg.AuthHandler.ForgotPassword)
+	auth.POST("/reset-password", cfg.AuthHandler.ResetPassword)
 
 	// ── Auth (protected) ─────────────────────────────────────────
 	authProtected := v1.Group("/auth")
 	authProtected.Use(middleware.JWTAuth(cfg.JWTSecret))
 	authProtected.GET("/me", cfg.AuthHandler.GetMe)
 }
-

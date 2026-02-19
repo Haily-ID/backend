@@ -23,7 +23,7 @@ import (
 func main() {
 	logger.Init("WORKER")
 
-	cfg, err := config.Load("config/config.yaml")
+	cfg, err := config.Load(".env")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -45,6 +45,7 @@ func main() {
 
 	m := mailer.New(mailer.Config{
 		Driver:   cfg.Mailer.Driver,
+		FromName: cfg.Mailer.FromName,
 		From:     cfg.Mailer.From,
 		Host:     cfg.Mailer.Host,
 		Port:     cfg.Mailer.Port,
@@ -81,6 +82,6 @@ func handleSendOTPEmail(m mailer.Mailer) asynqLib.HandlerFunc {
 			return err
 		}
 		logger.Infof("Sending OTP email to %s", payload.To)
-		return m.SendOTP(payload.To, payload.Name, payload.OTP, payload.Purpose)
+		return m.SendOTP(payload.To, payload.Name, payload.OTP, payload.Purpose, payload.Lang)
 	}
 }

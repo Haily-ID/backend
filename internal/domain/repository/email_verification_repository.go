@@ -13,4 +13,5 @@ type EmailVerificationRepository interface {
 	MarkUsed(ctx context.Context, id int64) error
 	IncrementAttempts(ctx context.Context, id int64) error
 	InvalidateByUserIDAndType(ctx context.Context, userID int64, verType string) error
+	DeleteByUserID(ctx context.Context, userID int64) error
 }

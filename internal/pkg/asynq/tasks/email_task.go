@@ -16,14 +16,16 @@ type SendOTPEmailPayload struct {
 	Name    string `json:"name"`
 	OTP     string `json:"otp"`
 	Purpose string `json:"purpose"`
+	Lang    string `json:"lang"`
 }
 
-func NewSendOTPEmailTask(to, name, otp, purpose string) (*asynq.Task, error) {
+func NewSendOTPEmailTask(to, name, otp, purpose, lang string) (*asynq.Task, error) {
 	payload, err := json.Marshal(SendOTPEmailPayload{
 		To:      to,
 		Name:    name,
 		OTP:     otp,
 		Purpose: purpose,
+		Lang:    lang,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal payload: %w", err)

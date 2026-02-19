@@ -8,6 +8,7 @@ type LoginResponse struct {
 }
 
 type RegisterResponse struct {
-	User    userDTO.UserDTO `json:"user"`
-	Message string          `json:"message"`
+	User              userDTO.UserDTO `json:"user"`
+	VerificationToken string          `json:"verification_token"`
+	Message           string          `json:"message"`
 }

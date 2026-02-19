@@ -10,12 +10,13 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/hibiken/asynq"
 	userEntity "github.com/haily-id/engine/internal/domain/entity/user"
 	"github.com/haily-id/engine/internal/domain/repository"
 	"github.com/haily-id/engine/internal/pkg/asynq/tasks"
+	"github.com/haily-id/engine/internal/pkg/i18n"
 	"github.com/haily-id/engine/internal/pkg/mailer"
 	"github.com/haily-id/engine/internal/pkg/snowflake"
+	"github.com/hibiken/asynq"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -35,6 +36,16 @@ type LoginRequest struct {
 type VerifyEmailRequest struct {
 	Token string `json:"token" validate:"required"`
 	OTP   string `json:"otp"   validate:"required,len=6"`
+}
+
+type ForgotPasswordRequest struct {
+	Email string `json:"email" validate:"required,email"`
+}
+
+type ResetPasswordRequest struct {
+	Token       string `json:"token"        validate:"required"`
+	OTP         string `json:"otp"          validate:"required,len=6"`
+	NewPassword string `json:"new_password" validate:"required,min=8"`
 }
 
 type ResendOTPRequest struct {
@@ -78,20 +89,42 @@ func NewUseCase(
 	}
 }
 
-func (uc *UseCase) Register(ctx context.Context, req RegisterRequest) (*userEntity.User, error) {
+func (uc *UseCase) Register(ctx context.Context, req RegisterRequest) (*userEntity.User, string, error) {
 	existing, _ := uc.userRepo.FindByEmail(ctx, req.Email)
 	if existing != nil {
-		return nil, errors.New("email already registered")
+		if existing.Status != userEntity.StatusPendingVerification {
+			return nil, "", errors.New("email already registered")
+		}
+		if err := uc.evRepo.DeleteByUserID(ctx, existing.ID); err != nil {
+			return nil, "", fmt.Errorf("failed to clean up previous registration: %w", err)
+		}
+
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to hash password: %w", err)
+		}
+		pwd := string(hashedPassword)
+		existing.Password = &pwd
+		existing.Name = req.Name
+		if err := uc.userRepo.Update(ctx, existing); err != nil {
+			return nil, "", fmt.Errorf("failed to update incomplete registration: %w", err)
+		}
+
+		token, err := uc.createAndSendOTP(ctx, existing, userEntity.VerificationTypeEmailVerification)
+		if err != nil {
+			return nil, "", err
+		}
+		return existing, token, nil
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, fmt.Errorf("failed to hash password: %w", err)
+		return nil, "", fmt.Errorf("failed to hash password: %w", err)
 	}
 
 	id, err := snowflake.Generate()
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate ID: %w", err)
+		return nil, "", fmt.Errorf("failed to generate ID: %w", err)
 	}
 
 	pwd := string(hashedPassword)
@@ -104,14 +137,15 @@ func (uc *UseCase) Register(ctx context.Context, req RegisterRequest) (*userEnti
 	}
 
 	if err := uc.userRepo.Create(ctx, u); err != nil {
-		return nil, fmt.Errorf("failed to create user: %w", err)
+		return nil, "", fmt.Errorf("failed to create user: %w", err)
 	}
 
-	if err := uc.createAndSendOTP(ctx, u, userEntity.VerificationTypeEmailVerification); err != nil {
-		return nil, err
+	token, err := uc.createAndSendOTP(ctx, u, userEntity.VerificationTypeEmailVerification)
+	if err != nil {
+		return nil, "", err
 	}
 
-	return u, nil
+	return u, token, nil
 }
 
 func (uc *UseCase) Login(ctx context.Context, req LoginRequest) (*userEntity.User, string, error) {
@@ -148,47 +182,53 @@ func (uc *UseCase) Login(ctx context.Context, req LoginRequest) (*userEntity.Use
 	return u, token, nil
 }
 
-func (uc *UseCase) VerifyEmail(ctx context.Context, req VerifyEmailRequest) (*userEntity.User, error) {
+func (uc *UseCase) VerifyEmail(ctx context.Context, req VerifyEmailRequest) (*userEntity.User, string, error) {
 	ev, err := uc.evRepo.FindByToken(ctx, req.Token)
 	if err != nil {
-		return nil, errors.New("invalid or expired verification token")
+		return nil, "", errors.New("invalid or expired verification token")
 	}
 
 	if ev.IsUsed {
-		return nil, errors.New("verification token already used")
+		return nil, "", errors.New("verification token already used")
 	}
 
 	if time.Now().After(ev.ExpiresAt) {
-		return nil, errors.New("verification token expired")
+		return nil, "", errors.New("verification token expired")
 	}
 
 	if ev.AttemptsUsed >= ev.MaxAttempts {
-		return nil, errors.New("max verification attempts exceeded")
+		return nil, "", errors.New("max verification attempts exceeded")
 	}
 
 	if ev.OTPCode != req.OTP {
 		_ = uc.evRepo.IncrementAttempts(ctx, ev.ID)
-		return nil, errors.New("invalid OTP code")
+		return nil, "", errors.New("invalid OTP code")
 	}
 
 	if err := uc.evRepo.MarkUsed(ctx, ev.ID); err != nil {
-		return nil, fmt.Errorf("failed to mark verification used: %w", err)
+		return nil, "", fmt.Errorf("failed to mark verification used: %w", err)
 	}
 
 	u, err := uc.userRepo.FindByID(ctx, ev.UserID)
 	if err != nil {
-		return nil, fmt.Errorf("user not found: %w", err)
+		return nil, "", fmt.Errorf("user not found: %w", err)
 	}
 
 	now := time.Now()
 	u.Status = userEntity.StatusActive
 	u.EmailVerifiedAt = &now
+	u.LastLoginAt = &now
 
 	if err := uc.userRepo.Update(ctx, u); err != nil {
-		return nil, fmt.Errorf("failed to activate user: %w", err)
+		return nil, "", fmt.Errorf("failed to activate user: %w", err)
 	}
 
-	return u, nil
+	token, err := uc.generateJWT(u)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to generate token: %w", err)
+	}
+
+	return u, token, nil
 }
 
 func (uc *UseCase) ResendOTP(ctx context.Context, req ResendOTPRequest) error {
@@ -209,29 +249,104 @@ func (uc *UseCase) ResendOTP(ctx context.Context, req ResendOTPRequest) error {
 		return fmt.Errorf("failed to invalidate previous OTPs: %w", err)
 	}
 
-	return uc.createAndSendOTP(ctx, u, userEntity.VerificationTypeEmailVerification)
+	_, err = uc.createAndSendOTP(ctx, u, userEntity.VerificationTypeEmailVerification)
+	return err
 }
 
 func (uc *UseCase) GetMe(ctx context.Context, userID int64) (*userEntity.User, error) {
 	return uc.userRepo.FindByID(ctx, userID)
 }
 
+func (uc *UseCase) ForgotPassword(ctx context.Context, req ForgotPasswordRequest) (string, error) {
+	u, err := uc.userRepo.FindByEmail(ctx, req.Email)
+	if err != nil {
+		// Return success even if not found to prevent email enumeration
+		return "", nil
+	}
+
+	if u.Status == userEntity.StatusSuspended {
+		return "", errors.New("account suspended")
+	}
+
+	if err := uc.evRepo.InvalidateByUserIDAndType(ctx, u.ID, userEntity.VerificationTypePasswordReset); err != nil {
+		return "", fmt.Errorf("failed to invalidate previous reset tokens: %w", err)
+	}
+
+	token, err := uc.createAndSendOTP(ctx, u, userEntity.VerificationTypePasswordReset)
+	if err != nil {
+		return "", err
+	}
+
+	return token, nil
+}
+
+func (uc *UseCase) ResetPassword(ctx context.Context, req ResetPasswordRequest) error {
+	ev, err := uc.evRepo.FindByToken(ctx, req.Token)
+	if err != nil {
+		return errors.New("invalid or expired reset token")
+	}
+
+	if ev.Type != userEntity.VerificationTypePasswordReset {
+		return errors.New("invalid or expired reset token")
+	}
+
+	if ev.IsUsed {
+		return errors.New("reset token already used")
+	}
+
+	if time.Now().After(ev.ExpiresAt) {
+		return errors.New("reset token expired")
+	}
+
+	if ev.AttemptsUsed >= ev.MaxAttempts {
+		return errors.New("max verification attempts exceeded")
+	}
+
+	if ev.OTPCode != req.OTP {
+		_ = uc.evRepo.IncrementAttempts(ctx, ev.ID)
+		return errors.New("invalid OTP code")
+	}
+
+	if err := uc.evRepo.MarkUsed(ctx, ev.ID); err != nil {
+		return fmt.Errorf("failed to mark reset token used: %w", err)
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	u, err := uc.userRepo.FindByID(ctx, ev.UserID)
+	if err != nil {
+		return fmt.Errorf("user not found: %w", err)
+	}
+
+	p := string(hashed)
+	u.Password = &p
+
+	if err := uc.userRepo.Update(ctx, u); err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	return nil
+}
+
 // ─── Helpers ────────────────────────────────────────────────────
 
-func (uc *UseCase) createAndSendOTP(ctx context.Context, u *userEntity.User, verType string) error {
+func (uc *UseCase) createAndSendOTP(ctx context.Context, u *userEntity.User, verType string) (string, error) {
 	otp, err := generateOTP()
 	if err != nil {
-		return fmt.Errorf("failed to generate OTP: %w", err)
+		return "", fmt.Errorf("failed to generate OTP: %w", err)
 	}
 
 	token, err := generateToken()
 	if err != nil {
-		return fmt.Errorf("failed to generate token: %w", err)
+		return "", fmt.Errorf("failed to generate token: %w", err)
 	}
 
 	evID, err := snowflake.Generate()
 	if err != nil {
-		return fmt.Errorf("failed to generate ID: %w", err)
+		return "", fmt.Errorf("failed to generate ID: %w", err)
 	}
 
 	ev := &userEntity.EmailVerification{
@@ -246,19 +361,20 @@ func (uc *UseCase) createAndSendOTP(ctx context.Context, u *userEntity.User, ver
 	}
 
 	if err := uc.evRepo.Create(ctx, ev); err != nil {
-		return fmt.Errorf("failed to create verification: %w", err)
+		return "", fmt.Errorf("failed to create verification: %w", err)
 	}
 
-	task, err := tasks.NewSendOTPEmailTask(u.Email, u.Name, otp, verType)
+	lang := i18n.FromContext(ctx)
+	task, err := tasks.NewSendOTPEmailTask(u.Email, u.Name, otp, verType, lang)
 	if err != nil {
-		return fmt.Errorf("failed to create email task: %w", err)
+		return "", fmt.Errorf("failed to create email task: %w", err)
 	}
 
 	if err := uc.asynqClient.Enqueue(task, asynq.Queue("default")); err != nil {
-		return fmt.Errorf("failed to enqueue email task: %w", err)
+		return "", fmt.Errorf("failed to enqueue email task: %w", err)
 	}
 
-	return nil
+	return token, nil
 }
 
 func (uc *UseCase) generateJWT(u *userEntity.User) (string, error) {

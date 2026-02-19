@@ -63,3 +63,9 @@ func (r *emailVerificationRepository) InvalidateByUserIDAndType(ctx context.Cont
 		Where("user_id = ? AND type = ? AND is_used = false", userID, verType).
 		Update("is_used", true).Error
 }
+
+func (r *emailVerificationRepository) DeleteByUserID(ctx context.Context, userID int64) error {
+	return r.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Delete(&user.EmailVerification{}).Error
+}
