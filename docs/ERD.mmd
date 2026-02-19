@@ -63,6 +63,10 @@ erDiagram
     districts ||--o{ employee_addresses : "in"
     villages ||--o{ employee_addresses : "in"
 
+    %% Company Reference Data
+    industries ||--o{ companies : "categorizes"
+    company_types ||--o{ companies : "classifies"
+
     %% ============================================
     %% ENTITY DEFINITIONS
     %% ============================================
@@ -245,6 +249,28 @@ erDiagram
         int district_id FK
     }
 
+    %% ── Company Reference Data ───────────────────
+
+    industries {
+        bigint id PK
+        varchar name UK "e.g. Teknologi Informasi, Manufaktur"
+        varchar code UK "e.g. IT, MFG, FIN, RTL"
+        text description
+        boolean is_active
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    company_types {
+        bigint id PK
+        varchar name UK "e.g. Perseroan Terbatas, CV, Firma"
+        varchar code UK "e.g. PT, CV, FIRMA, UD, KOPERASI, PERORANGAN"
+        text description
+        boolean is_active
+        timestamp created_at
+        timestamp updated_at
+    }
+
     %% ── Tenant (Company) ────────────────────────
 
     companies {
@@ -253,7 +279,8 @@ erDiagram
         varchar code UK
         varchar email
         varchar phone
-        varchar industry
+        bigint industry_id FK
+        bigint company_type_id FK
         varchar tax_id
         varchar logo_key "Object storage key (nullable)"
         bigint owner_id FK
