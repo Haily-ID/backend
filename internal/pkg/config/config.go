@@ -15,6 +15,7 @@ type Config struct {
 	JWT       JWTConfig       `yaml:"jwt"`
 	Snowflake SnowflakeConfig `yaml:"snowflake"`
 	Asynq     AsynqConfig     `yaml:"asynq"`
+	Mailer    MailerConfig    `yaml:"mailer"`
 }
 
 type AppConfig struct {
@@ -50,6 +51,15 @@ type SnowflakeConfig struct {
 
 type AsynqConfig struct {
 	RedisAddr string `yaml:"redis_addr"`
+}
+
+type MailerConfig struct {
+	Driver   string `yaml:"driver"`
+	From     string `yaml:"from"`
+	Host     string `yaml:"host"`
+	Port     string `yaml:"port"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
 }
 
 func Load(configPath string) (*Config, error) {

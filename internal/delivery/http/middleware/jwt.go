@@ -17,20 +17,17 @@ func JWTAuth(secret string) echo.MiddlewareFunc {
 				return response.Error(c, http.StatusUnauthorized, response.ErrUnauthorized)
 			}
 
-			parts := strings.Split(authHeader, " ")
+			parts := strings.SplitN(authHeader, " ", 2)
 			if len(parts) != 2 || parts[0] != "Bearer" {
 				return response.Error(c, http.StatusUnauthorized, response.ErrUnauthorized)
 			}
 
-			tokenString := parts[1]
-
-			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			token, err := jwt.Parse(parts[1], func(token *jwt.Token) (interface{}, error) {
 				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 					return nil, echo.ErrUnauthorized
 				}
 				return []byte(secret), nil
 			})
-
 			if err != nil || !token.Valid {
 				return response.Error(c, http.StatusUnauthorized, response.ErrUnauthorized)
 			}
@@ -46,8 +43,8 @@ func JWTAuth(secret string) echo.MiddlewareFunc {
 			if email, ok := claims["email"].(string); ok {
 				c.Set("email", email)
 			}
-			if role, ok := claims["role"].(string); ok {
-				c.Set("role", role)
+			if status, ok := claims["status"].(string); ok {
+				c.Set("status", status)
 			}
 
 			return next(c)
@@ -55,18 +52,3 @@ func JWTAuth(secret string) echo.MiddlewareFunc {
 	}
 }
 
-func RoleAuth(allowedRoles ...string) echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			role := c.Get("role").(string)
-
-			for _, allowedRole := range allowedRoles {
-				if role == allowedRole {
-					return next(c)
-				}
-			}
-
-			return response.Error(c, http.StatusForbidden, response.ErrForbidden)
-		}
-	}
-}
