@@ -1,0 +1,425 @@
+erDiagram
+    %% ============================================
+    %% RELATIONSHIPS
+    %% ============================================
+
+    %% Auth & Identity
+    users ||--o{ user_companies : "is member of"
+    users ||--o{ email_verifications : "has"
+    users ||--o{ refresh_tokens : "has"
+    users ||--o{ notifications : "receives"
+
+    %% Tenant (Company)
+    companies ||--o{ user_companies : "has members"
+    companies ||--o{ company_addresses : "has"
+    companies ||--o{ company_subscriptions : "has"
+    companies ||--o{ company_modules : "enables"
+    companies ||--o{ company_settings : "configures"
+    companies ||--o{ roles : "defines"
+    companies ||--o{ audit_logs : "tracks"
+
+    %% Subscription & Plans
+    subscription_plans ||--o{ company_subscriptions : "used by"
+    subscription_plans ||--o{ plan_modules : "includes"
+    modules ||--o{ plan_modules : "included in"
+    company_subscriptions ||--o{ billing_invoices : "generates"
+
+    %% Module & RBAC
+    modules ||--o{ company_modules : "enabled in"
+    modules ||--o{ permissions : "has"
+    roles ||--o{ role_permissions : "grants"
+    permissions ||--o{ role_permissions : "assigned via"
+    user_companies }o--|| roles : "assigned"
+
+    %% Org Structure
+    companies ||--o{ divisions : "has"
+    companies ||--o{ employees : "employs"
+    divisions ||--o{ departments : "has"
+    departments ||--o{ positions : "contains"
+    departments ||--o{ employees : "contains"
+    users ||--o| employees : "linked to"
+
+    %% Employee Lifecycle
+    companies ||--o{ employee_invitations : "sends"
+    users ||--o{ employee_invitations : "receives"
+    employees ||--o| employee_invitations : "for"
+    employees ||--o{ employee_positions : "holds"
+    positions ||--o{ employee_positions : "assigned to"
+    employees ||--o{ employee_documents : "has"
+    employees ||--o{ employee_bank_accounts : "has"
+    employees ||--o{ employee_emergency_contacts : "has"
+
+    %% ============================================
+    %% ENTITY DEFINITIONS
+    %% ============================================
+
+    %% ── Auth & Identity ─────────────────────────
+
+    users {
+        bigint id PK
+        varchar email UK
+        varchar google_id UK "Google OAuth ID (nullable)"
+        varchar password "Nullable for OAuth users"
+        varchar name
+        varchar phone
+        varchar gender "MALE, FEMALE (nullable)"
+        varchar avatar_key "Object storage key (nullable)"
+        varchar status "PENDING_VERIFICATION, ACTIVE, SUSPENDED"
+        timestamp email_verified_at
+        timestamp last_login_at
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
+    }
+
+    email_verifications {
+        bigint id PK
+        bigint user_id FK
+        varchar type "EMAIL_VERIFICATION, PASSWORD_RESET"
+        varchar token UK
+        varchar otp_code "6-digit OTP"
+        varchar email
+        int attempts_used "Default 0"
+        int max_attempts "Default 3"
+        boolean is_used
+        timestamp expires_at
+        timestamp created_at
+    }
+
+    %% ── Subscription & Plans ────────────────────
+
+    subscription_plans {
+        bigint id PK
+        varchar name "Starter, Professional, Enterprise"
+        varchar code UK
+        varchar currency "Default: IDR"
+        decimal price_monthly
+        decimal price_yearly
+        int max_users "0 = unlimited"
+        int max_employees "0 = unlimited"
+        int max_storage_gb
+        boolean is_public "Visible in pricing page"
+        boolean is_active
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
+    }
+
+    modules {
+        bigint id PK
+        varchar code UK "hr, finance, erp, inventory"
+        varchar name
+        text description
+        varchar icon_key
+        boolean is_active
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    plan_modules {
+        bigint id PK
+        bigint plan_id FK
+        bigint module_id FK
+        timestamp created_at
+    }
+
+    company_subscriptions {
+        bigint id PK
+        bigint company_id FK
+        bigint plan_id FK
+        varchar status "TRIAL, ACTIVE, PAST_DUE, CANCELLED, EXPIRED"
+        varchar billing_cycle "MONTHLY, YEARLY"
+        timestamp trial_ends_at
+        timestamp current_period_start
+        timestamp current_period_end
+        timestamp cancelled_at
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    company_modules {
+        bigint id PK
+        bigint company_id FK
+        bigint module_id FK
+        boolean is_active
+        timestamp enabled_at
+        timestamp expires_at
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    billing_invoices {
+        bigint id PK
+        bigint company_id FK
+        bigint subscription_id FK
+        varchar invoice_number UK
+        varchar status "DRAFT, ISSUED, PAID, OVERDUE, VOID"
+        varchar currency "Default: IDR"
+        decimal subtotal
+        decimal tax_amount
+        decimal total_amount
+        varchar payment_method "BANK_TRANSFER, CREDIT_CARD, VA, etc"
+        varchar payment_reference
+        text notes
+        timestamp issued_at
+        timestamp due_at
+        timestamp paid_at
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    %% ── RBAC ────────────────────────────────────
+
+    roles {
+        bigint id PK
+        bigint company_id FK "Null = system-wide role"
+        varchar name "Owner, Admin, Manager, Employee, etc"
+        varchar code
+        boolean is_system "True = cannot be modified"
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
+    }
+
+    permissions {
+        bigint id PK
+        bigint module_id FK
+        varchar code UK "hr:employee:create, finance:invoice:read"
+        varchar name
+        varchar action "CREATE, READ, UPDATE, DELETE, EXPORT"
+        timestamp created_at
+    }
+
+    role_permissions {
+        bigint id PK
+        bigint role_id FK
+        bigint permission_id FK
+        timestamp created_at
+    }
+
+    %% ── Tenant (Company) ────────────────────────
+
+    companies {
+        bigint id PK
+        varchar name
+        varchar code UK
+        varchar email
+        varchar phone
+        varchar industry
+        varchar tax_id
+        varchar logo_key "Object storage key (nullable)"
+        bigint owner_id FK
+        varchar timezone "Default: Asia/Jakarta"
+        varchar locale "Default: id-ID"
+        varchar currency "Default: IDR"
+        boolean is_active
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
+    }
+
+    company_addresses {
+        bigint id PK
+        bigint company_id FK
+        varchar type "MAIN, BRANCH, CORRESPONDENCE, REGIONAL, WAREHOUSE"
+        text address_line1
+        text address_line2
+        varchar city
+        varchar state
+        varchar postal_code
+        varchar country "Default: ID"
+        varchar phone
+        varchar pic_name
+        varchar pic_phone
+        boolean is_primary
+        boolean is_active
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
+    }
+
+    company_settings {
+        bigint id PK
+        bigint company_id FK
+        varchar key "e.g. hr.leave.max_days, payroll.cut_off_date"
+        text value
+        varchar value_type "STRING, INTEGER, BOOLEAN, JSON"
+        varchar module "hr, finance, erp, inventory, general"
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    user_companies {
+        bigint id PK
+        bigint user_id FK
+        bigint company_id FK
+        bigint role_id FK
+        boolean is_active
+        timestamp joined_at
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
+    }
+
+    %% ── Org Structure ───────────────────────────
+
+    divisions {
+        bigint id PK
+        bigint company_id FK
+        varchar name
+        varchar code UK
+        text description
+        bigint head_employee_id FK "Nullable"
+        boolean is_active
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
+    }
+
+    departments {
+        bigint id PK
+        bigint company_id FK
+        bigint division_id FK "Nullable"
+        varchar name
+        varchar code UK
+        text description
+        bigint head_employee_id FK "Nullable"
+        boolean is_active
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
+    }
+
+    positions {
+        bigint id PK
+        bigint company_id FK
+        bigint department_id FK
+        varchar title
+        varchar code UK
+        varchar level "JUNIOR, MID, SENIOR, LEAD, MANAGER, DIRECTOR"
+        text description
+        boolean is_active
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
+    }
+
+    %% ── Employees ───────────────────────────────
+
+    employees {
+        bigint id PK
+        bigint company_id FK
+        bigint user_id FK "Nullable until invitation accepted"
+        bigint division_id FK "Nullable"
+        bigint department_id FK "Nullable"
+        varchar employee_number UK
+        varchar email
+        varchar name
+        varchar phone
+        varchar gender "MALE, FEMALE (nullable)"
+        varchar avatar_key "Object storage key (nullable)"
+        date date_of_birth
+        varchar place_of_birth
+        varchar national_id "KTP"
+        varchar tax_id "NPWP"
+        varchar marital_status "SINGLE, MARRIED, DIVORCED, WIDOWED"
+        date hire_date
+        date termination_date
+        varchar employment_status "ACTIVE, TERMINATED, SUSPENDED, ON_LEAVE"
+        varchar employment_type "FULL_TIME, PART_TIME, CONTRACT, INTERN"
+        decimal salary
+        boolean is_active
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
+    }
+
+    employee_positions {
+        bigint id PK
+        bigint employee_id FK
+        bigint position_id FK
+        date start_date
+        date end_date
+        boolean is_primary
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
+    }
+
+    employee_documents {
+        bigint id PK
+        bigint company_id FK
+        bigint employee_id FK
+        varchar storage_key "Object storage key"
+        varchar type "KTP, NPWP, CONTRACT, DEGREE, CERTIFICATE, etc"
+        varchar name
+        date valid_from
+        date valid_until "Nullable"
+        boolean is_verified
+        timestamp verified_at
+        bigint verified_by FK "User ID"
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
+    }
+
+    employee_bank_accounts {
+        bigint id PK
+        bigint employee_id FK
+        varchar bank_name
+        varchar bank_code
+        varchar account_number
+        varchar account_name
+        boolean is_primary
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
+    }
+
+    employee_emergency_contacts {
+        bigint id PK
+        bigint employee_id FK
+        varchar name
+        varchar relationship "SPOUSE, PARENT, SIBLING, FRIEND, etc"
+        varchar phone
+        varchar alternative_phone
+        boolean is_primary
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    employee_invitations {
+        bigint id PK
+        bigint company_id FK
+        bigint invited_by FK "Inviter employee ID"
+        bigint employee_id FK "Pre-created employee record"
+        bigint division_id FK "Nullable"
+        bigint department_id FK "Nullable"
+        bigint role_id FK
+        varchar email
+        varchar name
+        varchar token UK
+        varchar status "PENDING, ACCEPTED, EXPIRED, CANCELLED"
+        timestamp expires_at
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
+    }
+
+    %% ── Audit ───────────────────────────────────
+
+    audit_logs {
+        bigint id PK
+        bigint company_id FK
+        bigint user_id FK "Actor"
+        varchar request_id "Trace/correlation ID"
+        varchar module "hr, finance, erp, inventory"
+        varchar entity "employees, invoices, etc"
+        bigint entity_id
+        varchar action "CREATE, UPDATE, DELETE, LOGIN, EXPORT, etc"
+        json old_values
+        json new_values
+        varchar ip_address
+        varchar user_agent
+        timestamp created_at
+    }
