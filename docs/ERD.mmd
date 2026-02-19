@@ -48,6 +48,20 @@ erDiagram
     employees ||--o{ employee_documents : "has"
     employees ||--o{ employee_bank_accounts : "has"
     employees ||--o{ employee_emergency_contacts : "has"
+    employees ||--o{ employee_addresses : "has"
+
+    %% Indonesian Regional
+    provinces ||--o{ cities : "has"
+    cities ||--o{ districts : "has"
+    districts ||--o{ villages : "has"
+    provinces ||--o{ company_addresses : "in"
+    cities ||--o{ company_addresses : "in"
+    districts ||--o{ company_addresses : "in"
+    villages ||--o{ company_addresses : "in"
+    provinces ||--o{ employee_addresses : "in"
+    cities ||--o{ employee_addresses : "in"
+    districts ||--o{ employee_addresses : "in"
+    villages ||--o{ employee_addresses : "in"
 
     %% ============================================
     %% ENTITY DEFINITIONS
@@ -197,6 +211,40 @@ erDiagram
         timestamp created_at
     }
 
+    %% ── Indonesian Regional ──────────────────────
+
+    provinces {
+        int id PK
+        varchar name
+        varchar code UK
+    }
+
+    cities {
+        int id PK
+        varchar type "Kota, Kabupaten"
+        varchar name
+        varchar code
+        varchar full_code UK
+        int province_id FK
+    }
+
+    districts {
+        int id PK
+        varchar name
+        varchar code
+        varchar full_code UK
+        int city_id FK
+    }
+
+    villages {
+        int id PK
+        varchar name
+        varchar code
+        varchar full_code UK
+        varchar pos_code
+        int district_id FK
+    }
+
     %% ── Tenant (Company) ────────────────────────
 
     companies {
@@ -224,10 +272,11 @@ erDiagram
         varchar type "MAIN, BRANCH, CORRESPONDENCE, REGIONAL, WAREHOUSE"
         text address_line1
         text address_line2
-        varchar city
-        varchar state
+        int province_id FK
+        int city_id FK
+        int district_id FK
+        int village_id FK "Nullable"
         varchar postal_code
-        varchar country "Default: ID"
         varchar phone
         varchar pic_name
         varchar pic_phone
@@ -386,6 +435,23 @@ erDiagram
         boolean is_primary
         timestamp created_at
         timestamp updated_at
+    }
+
+    employee_addresses {
+        bigint id PK
+        bigint employee_id FK
+        varchar type "DOMICILE, KTP, HOMETOWN, etc"
+        text address_line1
+        text address_line2
+        int province_id FK
+        int city_id FK
+        int district_id FK
+        int village_id FK "Nullable"
+        varchar postal_code
+        boolean is_primary
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
     }
 
     employee_invitations {
