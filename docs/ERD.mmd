@@ -49,6 +49,8 @@ erDiagram
     employees ||--o{ employee_bank_accounts : "has"
     employees ||--o{ employee_emergency_contacts : "has"
     employees ||--o{ employee_addresses : "has"
+    employees ||--o{ employee_work_locations : "works at"
+    company_addresses ||--o{ employee_work_locations : "hosts"
 
     %% Indonesian Regional
     provinces ||--o{ cities : "has"
@@ -404,7 +406,7 @@ erDiagram
         date termination_date
         varchar employment_status "ACTIVE, TERMINATED, SUSPENDED, ON_LEAVE"
         varchar employment_type "FULL_TIME, PART_TIME, CONTRACT, INTERN"
-        decimal salary
+        int dependents_count "Number of dependents for PTKP tax calculation"
         boolean is_active
         timestamp created_at
         timestamp updated_at
@@ -477,6 +479,18 @@ erDiagram
         int village_id FK "Nullable"
         varchar postal_code
         boolean is_primary
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
+    }
+
+    employee_work_locations {
+        bigint id PK
+        bigint employee_id FK
+        bigint company_address_id FK
+        boolean is_primary
+        date start_date
+        date end_date "Nullable"
         timestamp created_at
         timestamp updated_at
         timestamp deleted_at
