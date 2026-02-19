@@ -13,6 +13,7 @@ import (
 	userEntity "github.com/haily-id/engine/internal/domain/entity/user"
 	"github.com/haily-id/engine/internal/domain/repository"
 	"github.com/haily-id/engine/internal/pkg/asynq/tasks"
+	"github.com/haily-id/engine/internal/pkg/i18n"
 	"github.com/haily-id/engine/internal/pkg/mailer"
 	"github.com/haily-id/engine/internal/pkg/snowflake"
 	"github.com/hibiken/asynq"
@@ -78,41 +79,42 @@ func NewUseCase(
 	}
 }
 
-func (uc *UseCase) Register(ctx context.Context, req RegisterRequest) (*userEntity.User, error) {
+func (uc *UseCase) Register(ctx context.Context, req RegisterRequest) (*userEntity.User, string, error) {
 	existing, _ := uc.userRepo.FindByEmail(ctx, req.Email)
 	if existing != nil {
 		if existing.Status != userEntity.StatusPendingVerification {
-			return nil, errors.New("email already registered")
+			return nil, "", errors.New("email already registered")
 		}
 		if err := uc.evRepo.DeleteByUserID(ctx, existing.ID); err != nil {
-			return nil, fmt.Errorf("failed to clean up previous registration: %w", err)
+			return nil, "", fmt.Errorf("failed to clean up previous registration: %w", err)
 		}
 
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
-			return nil, fmt.Errorf("failed to hash password: %w", err)
+			return nil, "", fmt.Errorf("failed to hash password: %w", err)
 		}
 		pwd := string(hashedPassword)
 		existing.Password = &pwd
 		existing.Name = req.Name
 		if err := uc.userRepo.Update(ctx, existing); err != nil {
-			return nil, fmt.Errorf("failed to update incomplete registration: %w", err)
+			return nil, "", fmt.Errorf("failed to update incomplete registration: %w", err)
 		}
 
-		if err := uc.createAndSendOTP(ctx, existing, userEntity.VerificationTypeEmailVerification); err != nil {
-			return nil, err
+		token, err := uc.createAndSendOTP(ctx, existing, userEntity.VerificationTypeEmailVerification)
+		if err != nil {
+			return nil, "", err
 		}
-		return existing, nil
+		return existing, token, nil
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, fmt.Errorf("failed to hash password: %w", err)
+		return nil, "", fmt.Errorf("failed to hash password: %w", err)
 	}
 
 	id, err := snowflake.Generate()
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate ID: %w", err)
+		return nil, "", fmt.Errorf("failed to generate ID: %w", err)
 	}
 
 	pwd := string(hashedPassword)
@@ -125,14 +127,15 @@ func (uc *UseCase) Register(ctx context.Context, req RegisterRequest) (*userEnti
 	}
 
 	if err := uc.userRepo.Create(ctx, u); err != nil {
-		return nil, fmt.Errorf("failed to create user: %w", err)
+		return nil, "", fmt.Errorf("failed to create user: %w", err)
 	}
 
-	if err := uc.createAndSendOTP(ctx, u, userEntity.VerificationTypeEmailVerification); err != nil {
-		return nil, err
+	token, err := uc.createAndSendOTP(ctx, u, userEntity.VerificationTypeEmailVerification)
+	if err != nil {
+		return nil, "", err
 	}
 
-	return u, nil
+	return u, token, nil
 }
 
 func (uc *UseCase) Login(ctx context.Context, req LoginRequest) (*userEntity.User, string, error) {
@@ -230,7 +233,8 @@ func (uc *UseCase) ResendOTP(ctx context.Context, req ResendOTPRequest) error {
 		return fmt.Errorf("failed to invalidate previous OTPs: %w", err)
 	}
 
-	return uc.createAndSendOTP(ctx, u, userEntity.VerificationTypeEmailVerification)
+	_, err = uc.createAndSendOTP(ctx, u, userEntity.VerificationTypeEmailVerification)
+	return err
 }
 
 func (uc *UseCase) GetMe(ctx context.Context, userID int64) (*userEntity.User, error) {
@@ -239,20 +243,20 @@ func (uc *UseCase) GetMe(ctx context.Context, userID int64) (*userEntity.User, e
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-func (uc *UseCase) createAndSendOTP(ctx context.Context, u *userEntity.User, verType string) error {
+func (uc *UseCase) createAndSendOTP(ctx context.Context, u *userEntity.User, verType string) (string, error) {
 	otp, err := generateOTP()
 	if err != nil {
-		return fmt.Errorf("failed to generate OTP: %w", err)
+		return "", fmt.Errorf("failed to generate OTP: %w", err)
 	}
 
 	token, err := generateToken()
 	if err != nil {
-		return fmt.Errorf("failed to generate token: %w", err)
+		return "", fmt.Errorf("failed to generate token: %w", err)
 	}
 
 	evID, err := snowflake.Generate()
 	if err != nil {
-		return fmt.Errorf("failed to generate ID: %w", err)
+		return "", fmt.Errorf("failed to generate ID: %w", err)
 	}
 
 	ev := &userEntity.EmailVerification{
@@ -267,19 +271,20 @@ func (uc *UseCase) createAndSendOTP(ctx context.Context, u *userEntity.User, ver
 	}
 
 	if err := uc.evRepo.Create(ctx, ev); err != nil {
-		return fmt.Errorf("failed to create verification: %w", err)
+		return "", fmt.Errorf("failed to create verification: %w", err)
 	}
 
-	task, err := tasks.NewSendOTPEmailTask(u.Email, u.Name, otp, verType)
+	lang := i18n.FromContext(ctx)
+	task, err := tasks.NewSendOTPEmailTask(u.Email, u.Name, otp, verType, lang)
 	if err != nil {
-		return fmt.Errorf("failed to create email task: %w", err)
+		return "", fmt.Errorf("failed to create email task: %w", err)
 	}
 
 	if err := uc.asynqClient.Enqueue(task, asynq.Queue("default")); err != nil {
-		return fmt.Errorf("failed to enqueue email task: %w", err)
+		return "", fmt.Errorf("failed to enqueue email task: %w", err)
 	}
 
-	return nil
+	return token, nil
 }
 
 func (uc *UseCase) generateJWT(u *userEntity.User) (string, error) {

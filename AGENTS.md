@@ -27,7 +27,7 @@ Built with Clean Architecture for maintainability and scalability in complex ent
 - **Structure**: Monorepo
 - **Dev Tool**: Air (hot reload for API & Worker)
 - **Testing**: Go testing + testify
-- **Config**: YAML + Environment Variables
+- **Config**: dotenv (`.env` file via `godotenv`)
 
 **Development Principles**:
 
@@ -62,11 +62,13 @@ haily-backend/
 │   │   ├── dto/{module}/        # API response DTOs
 │   │   └── repository/          # Repository interfaces
 │   └── pkg/                     # Internal shared packages
-│       ├── config/              # Config loading
+│       ├── config/              # Config loading (dotenv)
 │       ├── database/            # GORM connection
+│       ├── i18n/                # Localization (en/id)
 │       ├── snowflake/           # ID generator
 │       ├── asynq/               # Job queue
 │       ├── logger/              # Logging
+│       ├── mailer/              # Email sending (SMTP/console)
 │       ├── validator/           # Validation
 │       └── response/            # Response formatter
 ├── pkg/                         # Public packages
@@ -79,6 +81,7 @@ haily-backend/
 ├── docker-compose.yml
 ├── Dockerfile.api
 ├── Dockerfile.worker
+├── .env                         # Local secrets (git-ignored)
 ├── .env.example
 └── README.md
 ```
@@ -382,29 +385,97 @@ Examples: `user:id:123`, `invoice:id:INV-001`
 
 ---
 
+## i18n / Localization
+
+**Package**: `internal/pkg/i18n`
+
+**Supported Languages**: `en` (English, default), `id` (Indonesian)
+
+**Detection**: Read `Accept-Language` request header in each HTTP handler, parse and return the best matching supported language.
+
+**Context Propagation**:
+1. Handler detects lang from `Accept-Language` header via `i18n.Detect(header)`
+2. Stores lang in context via `i18n.WithLang(ctx, lang)`
+3. Passes enriched context to use case
+4. Use case reads lang via `i18n.FromContext(ctx)` when needed (e.g., for email tasks)
+
+**API**:
+- `Detect(acceptLanguage string) string` — parses header, returns `"en"` or `"id"`
+- `WithLang(ctx, lang) context.Context` — stores lang in context
+- `FromContext(ctx) string` — reads lang from context (defaults to `"en"`)
+- `OTPEmail(name, otp, purpose, lang) OTPEmailContent` — returns localized email subject + body
+- `RegisterSuccessMessage(lang) string` — localized register success message
+- `ResendOTPSuccessMessage(lang) string` — localized resend OTP success message
+
+**Handler Pattern**:
+```go
+lang := i18n.Detect(c.Request().Header.Get("Accept-Language"))
+ctx := i18n.WithLang(c.Request().Context(), lang)
+// pass ctx to use case...
+```
+
+---
+
 ## Configuration Management
 
-**Single Source of Truth**:
+**Single Source of Truth**: `.env` file loaded via `github.com/joho/godotenv`
 
-- `config/config.yaml`: Default values + docs
-- Environment Variables: Override for prod/staging
-- Load order: YAML → ENV override
+- `.env`: Local config + secrets (never commit, git-ignored)
+- `.env.example`: Template with empty/placeholder secrets (committed)
+- All values read from environment variables after dotenv load
+- Override any value by setting env var before starting the process
 
-**Sections**: app, database, redis, jwt, snowflake, asynq
+**Config file**: `internal/pkg/config/config.go` — `Load(envFile string) (*Config, error)`
+
+**Sections**: app, database, redis, jwt, snowflake, asynq, mailer
 
 **ENV Variables**:
 
 ```bash
-APP_ENV=production
+# App
+APP_ENV=development
 APP_PORT=8080
-DB_HOST=db.prod.com
+APP_NAME=Haily Backend
+
+# Database
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
 DB_PASSWORD=secret
-REDIS_HOST=redis.prod.com
+DB_NAME=haily
+DB_SSL_MODE=disable
+
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_DB=0
+
+# JWT
 JWT_SECRET=secret-key
+JWT_EXPIRATION_HOUR=24
+
+# Snowflake
 SNOWFLAKE_MACHINE_ID=1
+
+# Asynq
+ASYNQ_REDIS_ADDR=localhost:6379
+
+# Mail
+MAIL_DRIVER=smtp
+MAIL_HOST=smtp.example.com
+MAIL_PORT=465
+MAIL_USERNAME=noreply@example.com
+MAIL_PASSWORD=secret
+MAIL_FROM_ADDRESS=noreply@example.com
+MAIL_FROM_NAME=Haily
 ```
 
-**Best Practices**: Never commit secrets, use `.env.example` template, document all options, validate on startup
+**MAIL_DRIVER**: `smtp` (real emails) or `console` (log to stdout, default for dev)
+
+**SMTP Port**: `465` = implicit TLS (SMTPS), `587` = STARTTLS. Both supported.
+
+**Best Practices**: Never commit `.env`, use `.env.example` template, validate on startup
 
 ---
 

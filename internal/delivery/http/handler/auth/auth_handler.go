@@ -5,6 +5,7 @@ import (
 
 	authDTO "github.com/haily-id/engine/internal/domain/dto/auth"
 	userDTO "github.com/haily-id/engine/internal/domain/dto/user"
+	"github.com/haily-id/engine/internal/pkg/i18n"
 	"github.com/haily-id/engine/internal/pkg/response"
 	"github.com/haily-id/engine/internal/pkg/validator"
 	"github.com/haily-id/engine/internal/usecase/auth"
@@ -28,7 +29,10 @@ func (h *Handler) Register(c echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, response.ErrValidation)
 	}
 
-	u, err := h.authUC.Register(c.Request().Context(), req)
+	lang := i18n.Detect(c.Request().Header.Get("Accept-Language"))
+	ctx := i18n.WithLang(c.Request().Context(), lang)
+
+	u, verToken, err := h.authUC.Register(ctx, req)
 	if err != nil {
 		if err.Error() == "email already registered" {
 			return response.Error(c, http.StatusConflict, response.ErrEmailAlreadyExists)
@@ -37,8 +41,9 @@ func (h *Handler) Register(c echo.Context) error {
 	}
 
 	return response.Created(c, authDTO.RegisterResponse{
-		User:    userDTO.ToDTO(u),
-		Message: "Registration successful. Please check your email for OTP verification.",
+		User:              userDTO.ToDTO(u),
+		VerificationToken: verToken,
+		Message:           i18n.RegisterSuccessMessage(lang),
 	})
 }
 
@@ -51,7 +56,10 @@ func (h *Handler) Login(c echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, response.ErrValidation)
 	}
 
-	u, token, err := h.authUC.Login(c.Request().Context(), req)
+	lang := i18n.Detect(c.Request().Header.Get("Accept-Language"))
+	ctx := i18n.WithLang(c.Request().Context(), lang)
+
+	u, token, err := h.authUC.Login(ctx, req)
 	if err != nil {
 		switch err.Error() {
 		case "invalid email or password":
@@ -79,7 +87,10 @@ func (h *Handler) VerifyEmail(c echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, response.ErrValidation)
 	}
 
-	u, err := h.authUC.VerifyEmail(c.Request().Context(), req)
+	lang := i18n.Detect(c.Request().Header.Get("Accept-Language"))
+	ctx := i18n.WithLang(c.Request().Context(), lang)
+
+	u, err := h.authUC.VerifyEmail(ctx, req)
 	if err != nil {
 		switch err.Error() {
 		case "invalid or expired verification token":
@@ -108,7 +119,10 @@ func (h *Handler) ResendOTP(c echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, response.ErrValidation)
 	}
 
-	err := h.authUC.ResendOTP(c.Request().Context(), req)
+	lang := i18n.Detect(c.Request().Header.Get("Accept-Language"))
+	ctx := i18n.WithLang(c.Request().Context(), lang)
+
+	err := h.authUC.ResendOTP(ctx, req)
 	if err != nil {
 		switch err.Error() {
 		case "user not found":
@@ -122,7 +136,7 @@ func (h *Handler) ResendOTP(c echo.Context) error {
 	}
 
 	return response.Success(c, map[string]string{
-		"message": "OTP sent successfully. Please check your email.",
+		"message": i18n.ResendOTPSuccessMessage(lang),
 	})
 }
 
