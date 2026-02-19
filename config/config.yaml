@@ -27,7 +27,7 @@ redis:
 # JWT Configuration
 jwt:
   secret: your-secret-key-change-in-production
-  expiration: 24h
+  expiration_hour: 24
 
 # Snowflake Configuration
 snowflake:
@@ -35,9 +35,18 @@ snowflake:
 
 # Asynq Configuration
 asynq:
-  redis_uri: redis://localhost:6379/0
+  redis_addr: localhost:6379
   concurrency: 10
   queues:
     critical: 60
     default: 30
     low: 10
+
+# Mailer Configuration
+mailer:
+  driver: console   # "console" for dev, "smtp" for production
+  from: noreply@haily.id
+  host: ""
+  port: "587"
+  username: ""
+  password: ""
